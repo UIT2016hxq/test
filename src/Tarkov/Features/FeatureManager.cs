@@ -15,14 +15,14 @@ namespace eft_dma_radar.Tarkov.Features
     /// </summary>
     internal static class FeatureManager
     {
-        /// <summary>
-        /// HARD DISABLE - Set to true to completely disable ALL memory writes.
-        /// This overrides all config settings. For development/safety.
-        /// </summary>
-        private const bool HARD_DISABLE_ALL_MEMWRITES = false;
-
         internal static void ModuleInit()
         {
+            if (!MemoryWritePolicy.IsWriteAllowed)
+            {
+                XMLogging.WriteLine("[FeatureManager] Memory-write worker is disabled by the read-only policy.");
+                return;
+            }
+
             new Thread(Worker)
             {
                 IsBackground = true,
@@ -32,6 +32,9 @@ namespace eft_dma_radar.Tarkov.Features
 
         static FeatureManager()
         {
+            if (!MemoryWritePolicy.IsWriteAllowed)
+                return;
+
             MemDMABase.GameStarted += Memory_GameStarted;
             MemDMABase.GameStopped += Memory_GameStopped;
             MemDMABase.RaidStarted += Memory_RaidStarted;
@@ -41,19 +44,11 @@ namespace eft_dma_radar.Tarkov.Features
         private static void Worker()
         {
             XMLogging.WriteLine("Features Thread Starting...");
-            if (HARD_DISABLE_ALL_MEMWRITES)
-                XMLogging.WriteLine("[FeatureManager] *** MEMORY WRITES HARD DISABLED ***");
 
             while (true)
             {
                 try
                 {
-                    if (HARD_DISABLE_ALL_MEMWRITES)
-                    {
-                        Thread.Sleep(1000);
-                        continue;
-                    }
-
                     // Wait for process to be up (blocks until GameStarted)
                     if (!MemDMABase.WaitForProcess())
                     {
@@ -243,8 +238,8 @@ namespace eft_dma_radar.Tarkov.Features
         /// </summary>
         public static bool Enabled
         {
-            get => Config.MemWritesEnabled;
-            set => Config.MemWritesEnabled = value;
+            get => MemoryWritePolicy.IsWriteAllowed && Config.MemWritesEnabled;
+            set => Config.MemWritesEnabled = MemoryWritePolicy.IsWriteAllowed && value;
         }
     }
 }

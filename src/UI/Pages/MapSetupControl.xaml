@@ -5,7 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:hc="https://handyorg.github.io/handycontrol"
              mc:Ignorable="d" 
-             Width="365" Height="145">
+             Width="470" Height="265">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -94,7 +94,7 @@
                            Margin="0,8,0,8"/>
 
                 <!-- X, Y, Scale Values -->
-                <Grid Margin="8,0,0,15">
+                <Grid Margin="8,0,0,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
@@ -149,6 +149,25 @@
                                       Minimum="0.1"
                                       Maximum="10000"/>
                 </Grid>
+
+                <StackPanel Orientation="Horizontal" Margin="8,0,0,6">
+                    <Button x:Name="btnSaveCalibration" Content="保存此地图校准" Click="btnSaveCalibration_Click" Margin="0,0,8,0"/>
+                    <Button x:Name="btnResetCalibration" Content="恢复地图默认" Click="btnResetCalibration_Click"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="8,0,0,6">
+                    <Button x:Name="btnTwoPointCalibration" Content="开始两点校准" Click="btnTwoPointCalibration_Click" Margin="0,0,8,0"/>
+                    <Button x:Name="btnCancelCalibration" Content="取消" Click="btnCancelCalibration_Click" Visibility="Collapsed"/>
+                </StackPanel>
+                <TextBlock x:Name="txtCalibrationStatus" Text="在两处已知地标分别点击地图，可自动计算偏移和缩放。"
+                           Style="{StaticResource LabelText}" Margin="8,0,8,6" TextWrapping="Wrap" Opacity="0.8"/>
+
+                <StackPanel Orientation="Horizontal" Margin="8,0,0,8">
+                    <CheckBox x:Name="chkAutoFloor" Content="自动楼层" IsChecked="True" Checked="chkAutoFloor_Changed" Unchecked="chkAutoFloor_Changed" Margin="0,0,12,0"/>
+                    <TextBlock Text="楼层：" Style="{StaticResource LabelText}" VerticalAlignment="Center"/>
+                    <hc:NumericUpDown x:Name="nudFloor" Width="55" Minimum="0" Maximum="0" Value="0" Increment="1"
+                                      ValueChanged="nudFloor_ValueChanged" IsEnabled="False"/>
+                </StackPanel>
             </hc:SimpleStackPanel>
         </Grid>
     </Grid>

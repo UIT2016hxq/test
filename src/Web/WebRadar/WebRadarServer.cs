@@ -29,12 +29,7 @@ namespace eft_dma_radar.Tarkov.WebRadar
 {
     internal static class WebRadarServer
     {
-        private static readonly WebRadarUpdate _update = new();
         private static TimeSpan _tickRate;
-        private static IHost _webHost;
-
-        private static CancellationTokenSource _workerCts;
-        private static Thread _workerThread;
 
         private static bool _isRunning;
         private static int _upnpPort = -1;
@@ -58,24 +53,13 @@ namespace eft_dma_radar.Tarkov.WebRadar
         {
             await StopAsync();
 
-            _tickRate = tickRate;
-
-            // If they want UPnP, don't bind to loopback-only or the port forward is useless
-            var bindIp = ip;
-            if (enableUpnp && IsLoopbackHost(ip))
-                bindIp = "0.0.0.0";
-
-            ThrowIfInvalidBindParameters(bindIp, port);
-
-            // Only do UPnP if enabled
+            if (!IsLoopbackHost(ip))
+                throw new InvalidOperationException("Web Radar is restricted to localhost in the read-only build.");
             if (enableUpnp)
-            {
-                var ok = await TryConfigureUPnPAsync(port);
-                if (ok)
-                    XMLogging.WriteLine($"[WebRadar] UPnP port mapped: TCP {port} -> TCP {port}");
-                else
-                    XMLogging.WriteLine($"[WebRadar] UPnP failed (router may not support it / disabled / CGNAT). Continuing without UPnP.");
-            }
+                throw new InvalidOperationException("UPnP is disabled in the read-only build.");
+
+            _tickRate = tickRate;
+            ThrowIfInvalidBindParameters(IPAddress.Loopback.ToString(), port);
 
             _host = Host.CreateDefaultBuilder()
                 .ConfigureLogging(logging =>
@@ -90,7 +74,7 @@ namespace eft_dma_radar.Tarkov.WebRadar
                 {
                         web.UseKestrel(options =>
                         {
-                            options.Listen(IPAddress.Any, port);
+                            options.Listen(IPAddress.Loopback, port);
                         })
                        .Configure(app =>
                        {
@@ -113,7 +97,7 @@ namespace eft_dma_radar.Tarkov.WebRadar
                                endpoints.MapGet("/api/radar", async context =>
                                {
                                    context.Response.ContentType = "application/json";
-                                   await context.Response.WriteAsJsonAsync(_latest);
+                                   await context.Response.WriteAsJsonAsync(Volatile.Read(ref _latest));
                                });
 
                                endpoints.MapGet("/health", async context =>
@@ -144,6 +128,7 @@ namespace eft_dma_radar.Tarkov.WebRadar
                 .Build();
 
             await _host.StartAsync();
+            _isRunning = true;
 
             StartWorker();
 
@@ -162,8 +147,11 @@ namespace eft_dma_radar.Tarkov.WebRadar
 
         public static async Task StopAsync()
         {
-            _cts?.Cancel();
+            var cts = Interlocked.Exchange(ref _cts, null);
+            cts?.Cancel();
             _worker?.Join(2000);
+            _worker = null;
+            cts?.Dispose();
 
             if (_host != null)
             {
@@ -171,6 +159,8 @@ namespace eft_dma_radar.Tarkov.WebRadar
                 _host.Dispose();
                 _host = null;
             }
+
+            _isRunning = false;
 
             // Clean up UPnP mapping if we created one
             if (_upnpPort > 0)
@@ -274,23 +264,27 @@ namespace eft_dma_radar.Tarkov.WebRadar
                                       Memory.LocalPlayer.Firearm.HandsController.Item1.IsValidVirtualAddress();                
                 if(!handsValid)
                 {
-                    _latest = new WebRadarUpdate();
+                    Volatile.Write(ref _latest, new WebRadarUpdate());
                     Thread.Sleep(_tickRate);
                     continue;
                 }
                 try
                 {
-                    _latest.InGame   = Memory.InRaid;
-                    _latest.InRaid   = Memory.InRaid;
-                    _latest.MapID    = Memory.MapID;
-                    _latest.SendTime = DateTime.UtcNow;
-                    _latest.Version++;
+                    var previous = Volatile.Read(ref _latest);
+                    var next = new WebRadarUpdate
+                    {
+                        InGame = Memory.InRaid,
+                        InRaid = Memory.InRaid,
+                        MapID = Memory.MapID,
+                        SendTime = DateTime.UtcNow,
+                        Version = previous.Version + 1
+                    };
         
                     // =========================
                     // MAP (geometry only)
                     // =========================
                     var map = XMMapManager.Map;
-                    _latest.Map = map != null
+                    next.Map = map != null
                         ? WebRadarMapConverter.Convert(map.Config)
                         : null;
         
@@ -301,12 +295,12 @@ namespace eft_dma_radar.Tarkov.WebRadar
                     var localPlayer = Memory?.LocalPlayer;
                     var transitManager = exitManager;
         
-                    _latest.Exfils = exitManager?
+                    next.Exfils = exitManager?
                         .OfType<eft_dma_radar.Tarkov.GameWorld.Exits.Exfil>() // 👈 important
                         .Select(WebRadarExfil.CreateFromExfil)
                         .ToArray();
         
-                    _latest.Transits = transitManager?
+                    next.Transits = transitManager?
                         .OfType<eft_dma_radar.Tarkov.GameWorld.Exits.TransitPoint>() // 👈 important
                         .Select(WebRadarTransit.CreateFromTransit)
                         .ToArray();
@@ -314,7 +308,7 @@ namespace eft_dma_radar.Tarkov.WebRadar
                     // =========================
                     // PLAYERS
                     // =========================
-                    _latest.Players = Memory?.Players?
+                    next.Players = Memory?.Players?
                         .Where(p => p != null)
                         .Select(WebRadarPlayer.CreateFromPlayer)
                         .ToArray();
@@ -322,16 +316,18 @@ namespace eft_dma_radar.Tarkov.WebRadar
                     // =========================
                     // LOOT
                     // =========================
-                    _latest.Loot = Memory?.Loot?.UnfilteredLoot?
+                    next.Loot = Memory?.Loot?.UnfilteredLoot?
                         .Select(WebRadarLoot.CreateFromLoot)
                         .ToArray();
         
                     // =========================
                     // DOORS
                     // =========================
-                    _latest.Doors = Memory?.Game?.Interactables?._Doors?
+                    next.Doors = Memory?.Game?.Interactables?._Doors?
                         .Select(WebRadarDoor.CreateFromDoor)
                         .ToArray();
+
+                    Volatile.Write(ref _latest, next);
                 }
                 catch (Exception ex)
                 {

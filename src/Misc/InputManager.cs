@@ -14,6 +14,8 @@ namespace eft_dma_radar.Common.Misc
     {
         private static bool _initialized = false;
         private static bool _safeMode = false;
+        private static readonly object _initializationLock = new();
+        private static int _workerStarted;
 
         private static ulong _gafAsyncKeyStateExport;
 
@@ -46,42 +48,54 @@ namespace eft_dma_radar.Common.Misc
         /// </summary>
         public static void Initialize()
         {
-            try
+            lock (_initializationLock)
             {
-                if (MemoryInterface.Memory?.VmmHandle == null)
+                try
                 {
-                    _safeMode = true;
-                    XMLogging.WriteLine("[InputManager] Starting in Safe Mode - Input functionality disabled");
-                    NotificationsShared.Warning("[InputManager] Safe Mode - Input functionality disabled");
-                    return;
-                }
-
-                _hVMM = MemoryInterface.Memory.VmmHandle;
-
-                if (_hVMM != null)
-                {
-                    new Thread(Worker)
+                    if (MemoryInterface.Memory?.VmmHandle == null)
                     {
-                        IsBackground = true
-                    }.Start();
-                }
+                        _safeMode = true;
+                        XMLogging.WriteLine("[InputManager] Starting in Safe Mode - Input functionality disabled");
+                        NotificationsShared.Warning("[InputManager] Safe Mode - Input functionality disabled");
+                        return;
+                    }
 
-                if (InputManager.InitKeyboard())
-                {
+                    var nextVmm = MemoryInterface.Memory.VmmHandle;
+                    if (!ReferenceEquals(_hVMM, nextVmm))
+                    {
+                        _initialized = false;
+                        _winLogon = null;
+                        _gafAsyncKeyStateExport = 0;
+                    }
+
+                    _safeMode = false;
+                    _hVMM = nextVmm;
+
+                    if (!InitKeyboard())
+                    {
+                        XMLogging.WriteLine("ERROR Initializing Input Manager");
+                        NotificationsShared.Error("[InputManager] Failed to initialize, you may need to restart your gaming pc for hotkeys to work.");
+                        return;
+                    }
+
+                    if (Interlocked.CompareExchange(ref _workerStarted, 1, 0) == 0)
+                    {
+                        new Thread(Worker)
+                        {
+                            IsBackground = true,
+                            Name = "InputManager"
+                        }.Start();
+                    }
+
                     XMLogging.WriteLine("[InputManager] Initialized");
                     NotificationsShared.Success("[InputManager] Initialized successfully!");
                 }
-                else
+                catch (Exception ex)
                 {
-                    XMLogging.WriteLine("ERROR Initializing Input Manager");
-                    NotificationsShared.Error("[InputManager] Failed to initialize, you may need to restart your gaming pc for hotkeys to work.");
+                    XMLogging.WriteLine($"[InputManager] Error during initialization: {ex.Message}");
+                    _safeMode = true;
+                    NotificationsShared.Warning("[InputManager] Initialization failed - Safe Mode active");
                 }
-            }
-            catch (Exception ex)
-            {
-                XMLogging.WriteLine($"[InputManager] Error during initialization: {ex.Message}");
-                _safeMode = true;
-                NotificationsShared.Warning("[InputManager] Initialization failed - Safe Mode active");
             }
         }
 

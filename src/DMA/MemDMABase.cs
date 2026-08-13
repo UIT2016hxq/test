@@ -884,6 +884,7 @@ namespace eft_dma_radar.Common.DMA
         public unsafe void WriteValueEnsure<T>(ulong addr, T value)
             where T : unmanaged, allows ref struct
         {
+            EnsureMemoryWritesAllowed();
             int cb = sizeof(T);
             try
             {
@@ -921,6 +922,7 @@ namespace eft_dma_radar.Common.DMA
         public unsafe void WriteValueEnsure<T>(ulong addr, ref T value)
             where T : unmanaged, allows ref struct
         {
+            EnsureMemoryWritesAllowed();
             int cb = sizeof(T);
             try
             {
@@ -954,6 +956,9 @@ namespace eft_dma_radar.Common.DMA
         public unsafe bool TryWriteValueEnsure<T>(ulong addr, ref T value)
             where T : unmanaged
         {
+            if (!MemoryWritePolicy.IsWriteAllowed || SharedProgram.Config?.MemWritesEnabled != true)
+                return false;
+
             int cb = sizeof(T);
             try
             {
@@ -991,8 +996,7 @@ namespace eft_dma_radar.Common.DMA
         public unsafe void WriteValue<T>(ulong addr, T value)
             where T : unmanaged, allows ref struct
         {
-            if (!SharedProgram.Config?.MemWritesEnabled ?? false)
-                throw new Exception("Memory Writing is Disabled!");
+            EnsureMemoryWritesAllowed();
 
             try
             {
@@ -1019,8 +1023,7 @@ namespace eft_dma_radar.Common.DMA
         public unsafe void WriteValue<T>(ulong addr, ref T value)
             where T : unmanaged, allows ref struct
         {
-            if (!SharedProgram.Config?.MemWritesEnabled ?? false)
-                throw new Exception("Memory Writing is Disabled!");
+            EnsureMemoryWritesAllowed();
 
             try
             {
@@ -1046,8 +1049,7 @@ namespace eft_dma_radar.Common.DMA
         public unsafe void WriteBuffer<T>(ulong addr, Span<T> buffer)
             where T : unmanaged
         {
-            if (!SharedProgram.Config?.MemWritesEnabled ?? false)
-                throw new Exception("Memory Writing is Disabled!");
+            EnsureMemoryWritesAllowed();
             try
             {
                 if (!Process.MemWriteSpan(addr, buffer))
@@ -1067,6 +1069,7 @@ namespace eft_dma_radar.Common.DMA
         public void WriteBufferEnsure<T>(ulong addr, Span<T> buffer)
             where T : unmanaged
         {
+            EnsureMemoryWritesAllowed();
             int cb = SizeChecker<T>.Size * buffer.Length;
             try
             {
@@ -1102,6 +1105,9 @@ namespace eft_dma_radar.Common.DMA
         /// <param name="buffer">Buffer to write.</param>
         public bool WriteBufferEnsureB(ulong addr, byte[] buffer)
         {
+            if (!MemoryWritePolicy.IsWriteAllowed || SharedProgram.Config?.MemWritesEnabled != true)
+                return false;
+
             const int RetryCount = 3;
 
             try
@@ -1131,6 +1137,14 @@ namespace eft_dma_radar.Common.DMA
             {
                 throw new Exception($"[DMA] ERROR writing bytes at 0x{addr:X}", ex);
             }
+        }
+
+        private static void EnsureMemoryWritesAllowed()
+        {
+            MemoryWritePolicy.EnsureWriteAllowed();
+
+            if (SharedProgram.Config?.MemWritesEnabled != true)
+                throw new InvalidOperationException("Memory writing is disabled by configuration.");
         }
         #endregion
 

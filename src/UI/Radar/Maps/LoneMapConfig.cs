@@ -50,6 +50,33 @@ namespace eft_dma_radar.Common.Maps
         [JsonPropertyName("mapLayers")]
         public List<Layer> MapLayers { get; private set; }
 
+        [JsonIgnore]
+        private float _defaultX;
+        [JsonIgnore]
+        private float _defaultY;
+        [JsonIgnore]
+        private float _defaultScale;
+        [JsonIgnore]
+        private bool _defaultsCaptured;
+
+        internal void CaptureDefaults()
+        {
+            _defaultX = X;
+            _defaultY = Y;
+            _defaultScale = Scale;
+            _defaultsCaptured = true;
+        }
+
+        public void RestoreDefaultCalibration()
+        {
+            if (!_defaultsCaptured)
+                return;
+
+            X = _defaultX;
+            Y = _defaultY;
+            Scale = _defaultScale;
+        }
+
         /// <summary>
         /// A single layer of a Multi-Layered Map.
         /// </summary>
@@ -141,9 +168,9 @@ namespace eft_dma_radar.Common.Maps
             /// </summary>
             /// <param name="height">Height (usually LocalPlayer height).</param>
             /// <returns>True if within this layer, otherwise False.</returns>
-            public bool IsHeightInRange(float height)
+            public bool IsHeightInRange(float height, float tolerance = 0f)
             {
-                return height > MinHeight && height < MaxHeight;
+                return height >= MinHeight - tolerance && height <= MaxHeight + tolerance;
             }
 
             public int CompareTo(LoadedLayer other)

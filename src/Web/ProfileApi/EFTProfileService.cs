@@ -224,7 +224,7 @@ namespace eft_dma_radar.Tarkov.API
                 string loadedKey;
                     
                 if (ApiKeyStore.TryLoadApiKey(out loadedKey))
-                    XMLogging.WriteLine($"Got API Key{loadedKey}");
+                    XMLogging.WriteLine("[EFTProfileService] API key loaded.");
 
                 if (string.IsNullOrWhiteSpace(loadedKey))
                 {

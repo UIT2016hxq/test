@@ -247,7 +247,7 @@ namespace eft_dma_radar.Tarkov.GameWorld
 
             XMLogging.WriteLine("[Raid] Game data initialized successfully!");
 
-            if (Config.MemWrites.Aimbot.Enabled && Config.MemWrites.MemWritesEnabled)
+            if (MemoryWritePolicy.IsWriteAllowed && Config.MemWrites.Aimbot.Enabled && Config.MemWrites.MemWritesEnabled)
             {
                 Task.Run(() =>
                 {
@@ -652,38 +652,7 @@ namespace eft_dma_radar.Tarkov.GameWorld
                 if (!_raidStarted)
                 {
                     _raidStarted = true;
-
-                    // Fire feature hooks async so we don't block the caller
-                    Task.Run(() =>
-                    {
-                        foreach (var feature in IFeature.AllFeatures)
-                        {
-                            try
-                            {
-                                feature.OnRaidStart();
-                            }
-                            catch (Exception ex)
-                            {
-                                XMLogging.WriteLine($"[Raid] OnRaidStart error in {feature.GetType().Name}: {ex}");
-                            }
-                        }
-                        foreach (var player in Memory.Players)
-                        {
-                            if(player is null)
-                                continue;
-                            try
-                            {
-                                
-                                PlayerLookupApiClient.TryResolve(player);
-                                XMLogging.WriteLine($"[Raid] PlayerLookupApiClient resolved player {player.ProfileID}");
-                            }
-                            catch (Exception ex)
-                            {
-                                XMLogging.WriteLine($"[Raid] OnRaidStart error in Player {player}: {ex}");
-                            }
-                        }
-                        XMLogging.WriteLine("[Raid] Raid fully active, all features notified.");
-                    });
+                    XMLogging.WriteLine("[Raid] Raid fully active.");
                 }
 
                 return true;
@@ -709,10 +678,7 @@ namespace eft_dma_radar.Tarkov.GameWorld
                 XMLogging.WriteLine("Realtime thread starting...");
                 while (InRaid)
                 {
-                    if (Config.RatelimitRealtimeReads ||!CameraManagerBase.EspRunning || (MemWriteFeature<Aimbot>.Instance.Enabled && Aimbot.Engaged))
-                    {
-                        _refreshWait.AutoWait(TimeSpan.FromMilliseconds(1), 1000);
-                    }
+                    _refreshWait.AutoWait(TimeSpan.FromMilliseconds(5), 1000);
 
                     ct.ThrowIfCancellationRequested();
                     RealtimeLoop(); // Realtime update loop (player positions, etc.)
@@ -1069,17 +1035,6 @@ namespace eft_dma_radar.Tarkov.GameWorld
             {
                 XMLogging.WriteLine("[Raid] LocalGameWorld disposed ?? entering cooldown.");
 
-                foreach (var feature in IFeature.AllFeatures)
-                {
-                    try
-                    {
-                        feature.OnRaidEnd();
-                    }
-                    catch (Exception ex)
-                    {
-                        XMLogging.WriteLine($"[Raid] OnRaidEnd error in {feature.GetType().Name}: {ex}");
-                    }
-                }
 
                 _raidStarted = false;
 

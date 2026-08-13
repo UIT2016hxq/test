@@ -81,8 +81,9 @@ namespace eft_dma_radar.Common.DMA.ScatterAPI
         /// <param name="validation">Validation before writing, checks for True.</param>
         public void Execute(Func<bool> validation)
         {
-            if (!SharedProgram.Config.MemWritesEnabled)
-                throw new Exception("Memory Writing is Disabled!");
+            MemoryWritePolicy.EnsureWriteAllowed();
+            if (SharedProgram.Config?.MemWritesEnabled != true)
+                throw new InvalidOperationException("Memory writing is disabled by configuration.");
             if (_count > 0)
             {
                 if (!validation())

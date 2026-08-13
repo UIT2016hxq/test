@@ -432,6 +432,11 @@ namespace eft_dma_radar.UI.Misc
         [JsonPropertyName("lastZoom")]
         public int Zoom { get; set; } = 100;
 
+        /// <summary>Per-map visual preferences and user calibration overrides.</summary>
+        [JsonPropertyName("mapDisplay")]
+        [JsonInclude]
+        public MapDisplayConfig MapDisplay { get; set; } = new();
+
         /// <summary>
         /// Enables processing loot on map.
         /// </summary>
@@ -839,6 +844,11 @@ namespace eft_dma_radar.UI.Misc
             if (config.QuestPlanner == null)
                 config.QuestPlanner = new QuestPlannerSettings();
 
+            if (config.MapDisplay == null)
+                config.MapDisplay = new MapDisplayConfig();
+            config.MapDisplay.CalibrationOverrides ??= new Dictionary<string, MapCalibrationOverride>(StringComparer.OrdinalIgnoreCase);
+            config.MapDisplay.FloorOverrides ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
             if (config.PanelPositions != null)
             {
                 if (config.PanelPositions.GeneralSettings == null)
@@ -1042,6 +1052,38 @@ namespace eft_dma_radar.UI.Misc
     /// <summary>
     /// Configuration for panel positions
     /// </summary>
+    public sealed class MapDisplayConfig
+    {
+        [JsonPropertyName("showNorthIndicator")]
+        public bool ShowNorthIndicator { get; set; } = true;
+
+        [JsonPropertyName("showScaleBar")]
+        public bool ShowScaleBar { get; set; } = true;
+
+        [JsonPropertyName("showFloorLabel")]
+        public bool ShowFloorLabel { get; set; } = true;
+
+        // Keyed by the game map id rather than file name, so aliases keep their own calibration.
+        [JsonPropertyName("calibrationOverrides")]
+        public Dictionary<string, MapCalibrationOverride> CalibrationOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        // -1 / missing means automatic height-based layer selection.
+        [JsonPropertyName("floorOverrides")]
+        public Dictionary<string, int> FloorOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public sealed class MapCalibrationOverride
+    {
+        [JsonPropertyName("x")]
+        public float X { get; set; }
+
+        [JsonPropertyName("y")]
+        public float Y { get; set; }
+
+        [JsonPropertyName("scale")]
+        public float Scale { get; set; }
+    }
+
     public sealed class PanelPositionsConfig
     {
         /// <summary>

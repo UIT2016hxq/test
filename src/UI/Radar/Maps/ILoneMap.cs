@@ -17,6 +17,8 @@ namespace eft_dma_radar.Common.Maps
         /// </summary>
         XMMapConfig Config { get; }
 
+        int LayerCount { get; }
+
         /// <summary>
         /// Draw the Map on the provided Canvas.
         /// </summary>
@@ -24,7 +26,7 @@ namespace eft_dma_radar.Common.Maps
         /// <param name="playerHeight"></param>
         /// <param name="mapBounds"></param>
         /// <param name="windowBounds"></param>
-        void Draw(SKCanvas canvas, float playerHeight, SKRect mapBounds, SKRect windowBounds);
+        void Draw(SKCanvas canvas, float playerHeight, SKRect mapBounds, SKRect windowBounds, int? layerOverride = null);
 
         /// <summary>
         /// Get Parameters for this map.

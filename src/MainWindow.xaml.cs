@@ -61,6 +61,16 @@ namespace eft_dma_radar
         private bool _mouseDown;
         private Point _lastMousePosition;
         private Vector2 _mapPanPosition;
+        private XMMapParams _lastMapParams;
+        private string _configuredMapId;
+
+        private static readonly SKPaint MapHudLinePaint = new()
+        {
+            Color = SKColors.White,
+            StrokeWidth = 2f,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke
+        };
 
         private const float ZOOM_TO_MOUSE_STRENGTH = 5f; // Controls how much zoom moves toward mouse cursor
                                                            // 0.0 = Always zoom to center (like old-school map zoom)
@@ -276,6 +286,7 @@ namespace eft_dma_radar
 
         public MainWindow()
         {
+            ChineseUi.Initialize();
             InitializeComponent();
 
             Window = this;
@@ -309,6 +320,7 @@ namespace eft_dma_radar
                 this.PreviewKeyDown += MainWindow_PreviewKeyDown;
 
                 InitializeCanvas();
+                ChineseUi.Apply(this);
             };
 
             Initialized = true;
@@ -350,19 +362,25 @@ namespace eft_dma_radar
                 var mapID = MapID;
                 if (string.IsNullOrWhiteSpace(mapID))
                     return;
-        
-                if (!mapID.Equals(XMMapManager.Map?.ID, StringComparison.OrdinalIgnoreCase))
+
+                canvas.Clear(InterfaceColorOptions.RadarBackgroundColor);
+                var activeMap = XMMapManager.Map;
+                if (activeMap is null || !mapID.Equals(activeMap.ID, StringComparison.OrdinalIgnoreCase))
                 {
                     XMMapManager.LoadMap(mapID);
-                    UpdateSwitches();
+                    return;
                 }
-        
-                canvas.Clear(InterfaceColorOptions.RadarBackgroundColor);
-        
+
+                if (!mapID.Equals(_configuredMapId, StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplySavedMapCalibration(mapID);
+                    UpdateSwitches();
+                    _configuredMapId = mapID;
+                }
+
                 if (inRaid && localPlayer is not null)
                 {
-                    var map = XMMapManager.Map;
-                    ArgumentNullException.ThrowIfNull(map);
+                    var map = activeMap;
         
                     var closestToMouse = _mouseOverItem;
         
@@ -374,6 +392,8 @@ namespace eft_dma_radar
                         mapParams = map.GetParameters(skCanvas, _zoom, ref _mapPanPosition);
                     else
                         mapParams = map.GetParameters(skCanvas, _zoom, ref localPlayerMapPos);
+
+                    _lastMapParams = mapParams;
         
                     if (GeneralSettingsControl.chkMapSetup.IsChecked == true)
                         MapSetupControl.UpdatePlayerPosition(localPlayer);
@@ -389,9 +409,11 @@ namespace eft_dma_radar
                     var centerX = (mapCanvasBounds.Left + mapCanvasBounds.Right) / 2;
                     var centerY = (mapCanvasBounds.Top + mapCanvasBounds.Bottom) / 2;
         
+                    var mapCanvasSave = canvas.Save();
                     canvas.RotateDegrees(_rotationDegrees, centerX, centerY);
-        
-                    map.Draw(canvas, localPlayer.Position.Y, mapParams.Bounds, mapCanvasBounds);
+
+                    map.Draw(canvas, localPlayer.Position.Y, mapParams.Bounds, mapCanvasBounds,
+                        GetFloorOverride(mapID, map.LayerCount));
         
                     SKPaints.UpdatePulsingAsteriskColor();
         
@@ -519,7 +541,10 @@ namespace eft_dma_radar
         
                                 if (Config.Containers.HideSearched && container.Searched)
                                     continue;
-        
+
+                                if (!IsWithinMapView(container, mapParams))
+                                    continue;
+
                                 container.Draw(canvas, mapParams, localPlayer);
                             }
                         }
@@ -545,7 +570,10 @@ namespace eft_dma_radar
                             {
                                 if (!LootItem.CorpseSettings.Enabled && item is LootCorpse)
                                     continue;
-        
+
+                                if (!IsWithinMapView(item, mapParams))
+                                    continue;
+
                                 item.CheckNotify();
                                 item.Draw(canvas, mapParams, localPlayer);
                             }
@@ -565,7 +593,11 @@ namespace eft_dma_radar
         
                             if (questItems is not null)
                                 foreach (var item in questItems)
+                                {
+                                    if (!IsWithinMapView(item, mapParams))
+                                        continue;
                                     item.Draw(canvas, mapParams, localPlayer);
+                                }
                         }
         
                         if (QuestManager.Settings.Enabled)
@@ -573,7 +605,11 @@ namespace eft_dma_radar
                             var questLocations = Memory.QuestManager?.LocationConditions?.ToList();
                             if (questLocations is not null)
                                 foreach (var loc in questLocations)
+                                {
+                                    if (!IsWithinMapView(loc, mapParams))
+                                        continue;
                                     loc.Draw(canvas, mapParams, localPlayer);
+                                }
                         }
                     }
         
@@ -582,13 +618,20 @@ namespace eft_dma_radar
                     // ─────────────────────────────
                     if (explosivesSnapshot is not null)
                         foreach (var explosive in explosivesSnapshot)
+                        {
+                            if (!IsWithinMapView(explosive, mapParams))
+                                continue;
                             explosive.Draw(canvas, mapParams, localPlayer);
+                        }
         
                     if (!battleMode && exitsSnapshot is not null)
                     {
                         foreach (var exit in exitsSnapshot)
                         {
                             if (exit is Exfil ex && !localPlayer.IsPmc && ex.Status is Exfil.EStatus.Closed)
+                                continue;
+
+                            if (!IsWithinMapView(exit, mapParams))
                                 continue;
         
                             exit.Draw(canvas, mapParams, localPlayer);
@@ -597,7 +640,11 @@ namespace eft_dma_radar
         
                     if (!battleMode && Switch.Settings.Enabled && switchesSnapshot is not null)
                         foreach (var sw in switchesSnapshot)
+                        {
+                            if (!IsWithinMapView(sw, mapParams))
+                                continue;
                             sw.Draw(canvas, mapParams, localPlayer);
+                        }
         
                     // ─────────────────────────────
                     // PLAYERS ON TOP
@@ -620,7 +667,11 @@ namespace eft_dma_radar
                     if (!battleMode && Door.Settings.Enabled && doorsSnapshot is not null)
                     {
                         foreach (var door in doorsSnapshot)
+                        {
+                            if (!IsWithinMapView(door, mapParams))
+                                continue;
                             door.Draw(canvas, mapParams, localPlayer);
+                        }
                     }          
                     // ─────────────────────────────
                     // PINGS
@@ -671,6 +722,9 @@ namespace eft_dma_radar
                     if (Config.ShowQuestInfoWidget)
                         _questInfo?.Draw(canvas);
 
+                    canvas.RestoreToCount(mapCanvasSave);
+                    DrawMapHud(canvas, map, mapParams, mapID);
+
 
                 }
                 else
@@ -703,6 +757,16 @@ namespace eft_dma_radar
             _                 => 1
             
         };
+
+        private static bool IsWithinMapView(IWorldEntity entity, XMMapParams mapParams)
+        {
+            var position = entity.Position.ToMapPos(mapParams.Map);
+            var margin = 64f / MathF.Max(0.01f, MathF.Min(mapParams.XScale, mapParams.YScale));
+            return position.X >= mapParams.Bounds.Left - margin &&
+                   position.X <= mapParams.Bounds.Right + margin &&
+                   position.Y >= mapParams.Bounds.Top - margin &&
+                   position.Y <= mapParams.Bounds.Bottom + margin;
+        }
         public static void PingItem(string itemName)
         {
             var matchingLootItems = Loot?.Where(x => x?.Name?.IndexOf(itemName, StringComparison.OrdinalIgnoreCase) >= 0);
@@ -731,6 +795,26 @@ namespace eft_dma_radar
 
             if (!InRaid)
                 return;
+
+            if (MapSetupControl?.IsCapturingAnchors == true &&
+                LocalPlayer is not null &&
+                XMMapManager.Map is { } activeMap &&
+                TryGetUnzoomedMapPoint(e.GetPosition(skCanvas), out var mapPoint))
+            {
+                var playerPosition = LocalPlayer.Position;
+                if (MapSetupControl.CaptureAnchor(
+                        new Vector2(playerPosition.X, playerPosition.Z), mapPoint, activeMap.Config.SvgScale,
+                        out var x, out var y, out var scale))
+                {
+                    activeMap.Config.X = x;
+                    activeMap.Config.Y = y;
+                    activeMap.Config.Scale = scale;
+                    MapSetupControl.UpdateMapConfiguration(x, y, scale, activeMap.LayerCount,
+                        GetFloorOverride(MapID, activeMap.LayerCount));
+                    skCanvas.InvalidateVisual();
+                }
+                return;
+            }
 
             _mouseDown = true;
             _lastMousePosition = e.GetPosition(skCanvas);
@@ -954,7 +1038,7 @@ namespace eft_dma_radar
 
         private void GameNotRunningStatus(SKCanvas canvas)
         {
-            const string notRunning = "Game Process Not Running!";
+            const string notRunning = "未检测到游戏进程！";
             float textWidth = SKPaints.TextRadarStatus.MeasureText(notRunning);
             canvas.DrawText(notRunning, ((float)skCanvas.ActualWidth / 2) - textWidth / 2f, (float)skCanvas.ActualHeight / 2,
                 SKPaints.TextRadarStatus);
@@ -963,9 +1047,9 @@ namespace eft_dma_radar
 
         private void StartingUpStatus(SKCanvas canvas)
         {
-            const string startingUp1 = "Starting Up.";
-            const string startingUp2 = "Starting Up..";
-            const string startingUp3 = "Starting Up...";
+            const string startingUp1 = "正在启动。";
+            const string startingUp2 = "正在启动。。";
+            const string startingUp3 = "正在启动。。。";
             string status = _statusOrder == 1 ?
                 startingUp1 : _statusOrder == 2 ?
                 startingUp2 : startingUp3;
@@ -977,9 +1061,9 @@ namespace eft_dma_radar
 
         private void WaitingForRaidStatus(SKCanvas canvas)
         {
-            const string waitingFor1 = "Waiting for Raid Start.";
-            const string waitingFor2 = "Waiting for Raid Start..";
-            const string waitingFor3 = "Waiting for Raid Start...";
+            const string waitingFor1 = "等待对局开始。";
+            const string waitingFor2 = "等待对局开始。。";
+            const string waitingFor3 = "等待对局开始。。。";
             string status = _statusOrder == 1 ?
                 waitingFor1 : _statusOrder == 2 ?
                 waitingFor2 : waitingFor3;
@@ -1545,15 +1629,153 @@ namespace eft_dma_radar
         {
             NotifyUIActivity();
             TogglePanelVisibility("MapSetup");
+            RefreshMapSetupConfiguration();
+        }
 
+        public void RefreshMapSetupConfiguration()
+        {
             if (XMMapManager.Map?.Config != null)
             {
                 var config = XMMapManager.Map.Config;
-                MapSetupControl.UpdateMapConfiguration(config.X, config.Y, config.Scale);
+                MapSetupControl.UpdateMapConfiguration(config.X, config.Y, config.Scale,
+                    XMMapManager.Map.LayerCount, GetFloorOverride(MapID, XMMapManager.Map.LayerCount));
             }
             else
             {
                 MapSetupControl.UpdateMapConfiguration(0, 0, 1);
+            }
+        }
+
+        private void ApplySavedMapCalibration(string mapId)
+        {
+            var map = XMMapManager.Map;
+            if (map is null)
+                return;
+
+            map.Config.RestoreDefaultCalibration();
+            if (Config.MapDisplay.CalibrationOverrides.TryGetValue(mapId, out var calibration) &&
+                calibration.Scale is > 0 and < 10000)
+            {
+                map.Config.X = calibration.X;
+                map.Config.Y = calibration.Y;
+                map.Config.Scale = calibration.Scale;
+            }
+        }
+
+        private int? GetFloorOverride(string mapId, int layerCount)
+        {
+            if (!Config.MapDisplay.FloorOverrides.TryGetValue(mapId, out var floor) || floor < 0)
+                return null;
+
+            return Math.Clamp(floor, 0, Math.Max(0, layerCount - 1));
+        }
+
+        private void SaveCurrentMapCalibration()
+        {
+            var map = XMMapManager.Map;
+            if (map is null || string.IsNullOrWhiteSpace(MapID))
+                return;
+
+            Config.MapDisplay.CalibrationOverrides[MapID] = new MapCalibrationOverride
+            {
+                X = map.Config.X,
+                Y = map.Config.Y,
+                Scale = map.Config.Scale
+            };
+            Config.Save();
+            NotificationsShared.Success("已保存当前地图校准。");
+        }
+
+        private void ResetCurrentMapCalibration()
+        {
+            var map = XMMapManager.Map;
+            if (map is null || string.IsNullOrWhiteSpace(MapID))
+                return;
+
+            Config.MapDisplay.CalibrationOverrides.Remove(MapID);
+            map.Config.RestoreDefaultCalibration();
+            Config.Save();
+            MapSetupControl.UpdateMapConfiguration(map.Config.X, map.Config.Y, map.Config.Scale,
+                map.LayerCount, GetFloorOverride(MapID, map.LayerCount));
+            skCanvas.InvalidateVisual();
+            NotificationsShared.Info("已恢复此地图的默认校准。");
+        }
+
+        private void SetFloorOverride(int? floor)
+        {
+            if (string.IsNullOrWhiteSpace(MapID))
+                return;
+
+            if (floor is null)
+                Config.MapDisplay.FloorOverrides.Remove(MapID);
+            else
+                Config.MapDisplay.FloorOverrides[MapID] = floor.Value;
+
+            Config.Save();
+            skCanvas.InvalidateVisual();
+        }
+
+        private bool TryGetUnzoomedMapPoint(Point screenPoint, out Vector2 mapPoint)
+        {
+            mapPoint = default;
+            var parameters = _lastMapParams;
+            if (parameters is null || parameters.XScale <= 0 || parameters.YScale <= 0)
+                return false;
+
+            var centerX = (float)skCanvas.ActualWidth * 0.5f;
+            var centerY = (float)skCanvas.ActualHeight * 0.5f;
+            var radians = -_rotationDegrees * (MathF.PI / 180f);
+            var dx = (float)screenPoint.X - centerX;
+            var dy = (float)screenPoint.Y - centerY;
+            var unrotatedX = centerX + (dx * MathF.Cos(radians)) - (dy * MathF.Sin(radians));
+            var unrotatedY = centerY + (dx * MathF.Sin(radians)) + (dy * MathF.Cos(radians));
+
+            mapPoint = new Vector2(
+                parameters.Bounds.Left + (unrotatedX / parameters.XScale),
+                parameters.Bounds.Top + (unrotatedY / parameters.YScale));
+            return parameters.Bounds.Contains(mapPoint.X, mapPoint.Y);
+        }
+
+        private void DrawMapHud(SKCanvas canvas, IXMMap map, XMMapParams parameters, string mapId)
+        {
+            var display = Config.MapDisplay;
+            const float inset = 16f;
+            if (display.ShowNorthIndicator)
+            {
+                var origin = new SKPoint(inset + 10f, inset + 22f);
+                canvas.DrawText("北", origin.X - 5f, origin.Y - 12f, SKPaints.TextMouseover);
+                canvas.DrawLine(origin.X, origin.Y + 9f, origin.X, origin.Y - 6f, MapHudLinePaint);
+                canvas.DrawLine(origin.X, origin.Y - 6f, origin.X - 4f, origin.Y, MapHudLinePaint);
+                canvas.DrawLine(origin.X, origin.Y - 6f, origin.X + 4f, origin.Y, MapHudLinePaint);
+            }
+
+            if (display.ShowScaleBar)
+            {
+                var pixelsPerMeter = map.Config.Scale * map.Config.SvgScale * parameters.XScale;
+                if (pixelsPerMeter > 0)
+                {
+                    var meters = pixelsPerMeter switch
+                    {
+                        < 0.5f => 200,
+                        < 1f => 100,
+                        < 2f => 50,
+                        < 5f => 25,
+                        _ => 10
+                    };
+                    var width = meters * pixelsPerMeter;
+                    var y = (float)skCanvas.ActualHeight - inset;
+                    canvas.DrawLine(inset, y, inset + width, y, MapHudLinePaint);
+                    canvas.DrawLine(inset, y - 4f, inset, y + 4f, MapHudLinePaint);
+                    canvas.DrawLine(inset + width, y - 4f, inset + width, y + 4f, MapHudLinePaint);
+                    canvas.DrawText($"{meters} m", inset, y - 8f, SKPaints.TextMouseover);
+                }
+            }
+
+            if (display.ShowFloorLabel)
+            {
+                var floor = GetFloorOverride(mapId, map.LayerCount);
+                var label = floor is int selected ? $"楼层 {selected + 1}" : "自动楼层";
+                canvas.DrawText(label, (float)skCanvas.ActualWidth - 84f, inset + 10f, SKPaints.TextMouseover);
             }
         }
 
@@ -2487,6 +2709,9 @@ namespace eft_dma_radar
 
             MapSetupControl.DragRequested += sharedDragHandler;
             MapSetupControl.CloseRequested += sharedCloseHandler;
+            MapSetupControl.SaveCalibrationRequested += (s, e) => SaveCurrentMapCalibration();
+            MapSetupControl.ResetCalibrationRequested += (s, e) => ResetCurrentMapCalibration();
+            MapSetupControl.FloorOverrideChanged += (s, args) => SetFloorOverride(args.Floor);
             
             SettingsSearchControl.DragRequested   += sharedDragHandler;
             SettingsSearchControl.ResizeRequested += sharedResizeHandler;

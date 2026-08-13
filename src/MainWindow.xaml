@@ -349,7 +349,7 @@
             </Canvas.Resources>
 
             <Border x:Name="MapSetupPanel"
-                    Width="365" Height="145"
+                    Width="470" Height="265"
                     Canvas.Left="550" Canvas.Top="110"
                     CornerRadius="8"
                     Visibility="Collapsed"

@@ -1193,7 +1193,9 @@ namespace eft_dma_radar.UI.Pages
         }
         private void InitializeWebRadar()
         {
-            chkWebRadarUPnP.IsChecked = Config.WebRadar.UPnP;
+            Config.WebRadar.UPnP = false;
+            chkWebRadarUPnP.IsChecked = false;
+            chkWebRadarUPnP.IsEnabled = false;
             txtWebRadarPort.Text = Config.WebRadar.Port;
 
 
@@ -1212,7 +1214,7 @@ namespace eft_dma_radar.UI.Pages
         private void ToggleWebRadarControls(bool enabled = false)
         {
             btnWebRadarStart.IsEnabled = true;
-            chkWebRadarUPnP.IsEnabled = enabled;
+            chkWebRadarUPnP.IsEnabled = false;
             txtWebRadarPort.IsEnabled = enabled;
 
         }
@@ -1222,11 +1224,9 @@ namespace eft_dma_radar.UI.Pages
             var cbo = chkMapSetup;
             var value = cbo.IsChecked == true;
             var panel = MainWindow.Window.MapSetupPanel;
-            var config = XMMapManager.Map.Config;
-            var mapControl = MainWindow.Window.MapSetupControl;
 
             if (value && Memory.InRaid && Memory.LocalPlayer != null)
-                mapControl.UpdateMapConfiguration(config.X, config.Y, config.Scale);
+                MainWindow.Window.RefreshMapSetupConfiguration();
 
             panel.Visibility = (panel.Visibility != Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -1745,53 +1745,48 @@ namespace eft_dma_radar.UI.Pages
             if (WebRadarServer.IsRunning)
             {
                 ToggleWebRadarControls(false);
-                btnWebRadarStart.Content = "Stopping...";
+                btnWebRadarStart.Content = "正在停止...";
 
                 try
                 {
                     await WebRadarServer.StopAsync();
 
-                    btnWebRadarStart.Content = "Start";
+                    btnWebRadarStart.Content = "启动";
                     lblWebRadarLink.Text = "";
                     ToggleWebRadarControls(true);
 
-                    NotificationsShared.Info("Web Radar Server stopped successfully.");
+                    NotificationsShared.Info("网页雷达服务已停止。");
                 }
                 catch (Exception ex)
                 {
-                    NotificationsShared.Error($"ERROR Stopping Web Radar Server: {ex.Message}");
-                    btnWebRadarStart.Content = "Stop";
+                    NotificationsShared.Error($"停止网页雷达服务失败：{ex.Message}");
+                    btnWebRadarStart.Content = "停止";
                     ToggleWebRadarControls(true);
                 }
             }
             else
             {
                 ToggleWebRadarControls(false);
-                btnWebRadarStart.Content = "Starting...";
+                btnWebRadarStart.Content = "正在启动...";
 
                 try
                 {
                     var tickRate = TimeSpan.FromMilliseconds(1000d / 60);
-                    var bindIP = "0.0.0.0";
+                    var bindIP = IPAddress.Loopback.ToString();
                     var port = int.Parse(txtWebRadarPort.Text.Trim());
-                    var useUPnP = chkWebRadarUPnP.IsChecked == true;
 
+                    await WebRadarServer.StartAsync(bindIP, port, tickRate, autoOpenBrowser: true, enableUpnp: false);
 
-                    await WebRadarServer.StartAsync(bindIP, port, tickRate, useUPnP);
+                    btnWebRadarStart.Content = "停止";
 
-                    btnWebRadarStart.Content = "Stop";
+                    lblWebRadarLink.Text = $"http://{bindIP}:{port}";
 
-                    var externalIP = await WebRadarServer.GetExternalIPAsync();
-                    var webClientUrl = $"http://{externalIP}";
-
-                    lblWebRadarLink.Text = $"{webClientUrl}:{port}";
-
-                    NotificationsShared.Success("Web Radar Server started successfully!");
+                    NotificationsShared.Success("网页雷达服务已启动。");
                 }
                 catch (Exception ex)
                 {
-                    NotificationsShared.Error($"ERROR Starting Web Radar Server: {ex.Message}");
-                    btnWebRadarStart.Content = "Start";
+                    NotificationsShared.Error($"启动网页雷达服务失败：{ex.Message}");
+                    btnWebRadarStart.Content = "启动";
                     ToggleWebRadarControls(true);
                 }
             }

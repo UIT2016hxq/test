@@ -44,6 +44,8 @@ namespace eft_dma_shared.Common.Unity.LowLevel.Hooks
 
         public static bool Initialize()
         {
+            MemoryWritePolicy.EnsureWriteAllowed();
+
             lock (SyncRoot)
             {
                 if (Initialized)
